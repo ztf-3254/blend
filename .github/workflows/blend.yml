@@ -1,0 +1,41 @@
+name: Blend Signal
+
+on:
+  schedule:
+    # After the US close all year round: 21:15 and 22:15 UTC = 5:15 / 6:15 PM New York in summer, 4:15 / 5:15 PM in winter
+    - cron: "15 21 * * 1-5"
+    - cron: "15 22 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Send the current status to Telegram now"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: blend-signal
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check SPY against its 200-day average
+        env:
+          BLEND_TELEGRAM_BOT_TOKEN: ${{ secrets.BLEND_TELEGRAM_BOT_TOKEN }}
+          BLEND_TELEGRAM_CHAT_ID: ${{ secrets.BLEND_TELEGRAM_CHAT_ID }}
+        run: python blend_cloud.py ${{ inputs.force && '--force' || '' }}
+      - name: Save the state and the dashboard data
+        run: |
+          git config user.name "blend-signal"
+          git config user.email "blend-signal@users.noreply.github.com"
+          git add state.json docs/data.json 2>/dev/null || true
+          git diff --cached --quiet || (git commit -m "Daily check $(date -u +%F)" && git push)
