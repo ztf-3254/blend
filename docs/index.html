@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>Blend Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+<style>
+:root { --bg:#f7f6f3; --card:#ffffff; --ink:#1c1b19; --muted:#6b6862; --line:#e6e3dd; --pos:#15803d; --neg:#b91c1c; --pos-soft:#dcfce7; --neg-soft:#fee2e2; --accent:#1f4fd1; --avg:#9a7b2c; }
+@media (prefers-color-scheme: dark) { :root { --bg:#121211; --card:#1c1c1a; --ink:#f1efe9; --muted:#a19d95; --line:#2e2d2a; --pos:#4ade80; --neg:#f87171; --pos-soft:#12321d; --neg-soft:#3b1515; --accent:#8aa8ff; --avg:#d9b45b; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif; }
+main { max-width: 920px; margin: 0 auto; padding: 24px 16px 60px; }
+h1 { font-size: 26px; margin: 0 0 2px; letter-spacing: -0.02em; }
+h2 { font-size: 15px; margin: 0 0 12px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-top: 16px; }
+.hero { display: grid; gap: 6px; }
+.badge { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 28px; letter-spacing: -0.02em; }
+.dot { width: 14px; height: 14px; border-radius: 50%; }
+.pos { color: var(--pos); } .neg { color: var(--neg); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
+.k { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.bar { position: relative; height: 10px; border-radius: 5px; background: var(--line); margin: 10px 0 4px; }
+.bar i { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+svg { width: 100%; height: auto; display: block; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; color: var(--muted); font-weight: 600; }
+td.r, th.r { text-align: right; }
+.inputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); font-weight: 600; }
+input { font: inherit; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); width: 100%; }
+.split { display: flex; height: 18px; border-radius: 9px; overflow: hidden; margin: 12px 0 6px; background: var(--line); }
+.split span { display: block; height: 100%; }
+.note { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+.advice { padding: 12px 14px; border-radius: 12px; margin-top: 12px; font-weight: 600; }
+.advice.ok { background: var(--pos-soft); } .advice.act { background: var(--neg-soft); }
+footer { margin-top: 24px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Blend Dashboard</h1>
+  <div class="muted small" id="updated">Loading…</div>
+
+  <section class="card hero" id="hero"></section>
+  <section class="card"><h2>SPY and its 200-day average (last 12 months)</h2><div id="chart"></div>
+    <p class="note">Solid: SPY's daily close (dividends included). Dashed: its 200-day simple average. The sleeve holds the 3× ETF while the close is above the dashed line.</p></section>
+  <section class="card" id="mine"></section>
+  <section class="card"><h2>Switch history</h2><div id="history"></div></section>
+  <section class="card"><h2>The rules</h2>
+    <p class="small" style="margin:0">Half in <b class="n-core"></b>, always held. The other half (the sleeve) in <b class="n-sleeve"></b> while SPY's daily close is above its 200-day simple average, otherwise in <b class="n-cash"></b>. A switch is decided at the close and done at the next open. Rebalance to 50/50 on the first trading day of each quarter. Telegram tells you when to act.</p></section>
+  <footer>Market data from Yahoo, refreshed after each US close by GitHub Actions. Your share counts are stored only in this browser. Research and personal tracking only, not financial advice.</footer>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const usd = (v, d = 0) => (isFinite(v) ? (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }) : "–");
+const pct = (v, d = 1) => (isFinite(v) ? (v > 0 ? "+" : "") + v.toFixed(d) + "%" : "–");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtDate = (d) => (d ? new Date(d + "T12:00:00").toLocaleDateString("en-CA", { year: "numeric", month: "short", day: "numeric" }) : "–");
+const KEY = "blend-holdings-v1";
+let D = null;
+
+function load() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } }
+function save(h) { try { localStorage.setItem(KEY, JSON.stringify(h)); } catch (e) {} }
+
+function hero() {
+  const n = D.names, inUp = D.above;
+  const toSwitch = (D.avg / D.adj_close - 1) * 100;
+  const width = Math.min(100, Math.abs(D.distance_pct) / 15 * 100);
+  $("#hero").innerHTML = `
+    <div class="k">The sleeve should hold</div>
+    <div class="badge ${inUp ? "pos" : "neg"}"><span class="dot" style="background:var(--${inUp ? "pos" : "neg"})"></span>${esc(D.sleeve_should_hold)}</div>
+    <div class="small">${esc(n.index)} closed at <b>${usd(D.close, 2)}</b> on ${fmtDate(D.date)}: <b class="${inUp ? "pos" : "neg"}">${pct(D.distance_pct)}</b> ${inUp ? "above" : "below"} its 200-day average (${usd(D.avg, 2)}). ${D.since ? `In this state since ${fmtDate(D.since)}.` : ""}</div>
+    <div class="bar"><i style="left:0;width:${width}%;background:var(--${inUp ? "pos" : "neg"})"></i></div>
+    <div class="grid" style="margin-top:10px">
+      <div><div class="k">Distance to a switch</div><div class="v">${inUp ? `${pct(toSwitch)}` : `${pct(toSwitch)}`}</div><div class="muted small">${inUp ? "SPY would need to fall this much (the average keeps moving)" : "SPY would need to rise this much"}</div></div>
+      <div><div class="k">Next rebalance</div><div class="v">${fmtDate(D.next_rebalance)}</div><div class="muted small">first trading day of the quarter</div></div>
+      <div><div class="k">Core</div><div class="v">${esc(n.core)}</div><div class="muted small">always held · ${usd(D.prices[n.core], 2)}</div></div>
+      <div><div class="k">Sleeve</div><div class="v">${esc(n.sleeve)} / ${esc(n.cash)}</div><div class="muted small">${usd(D.prices[n.sleeve], 2)} / ${usd(D.prices[n.cash], 2)}</div></div>
+    </div>`;
+  document.querySelectorAll(".n-core").forEach((e) => (e.textContent = n.core));
+  document.querySelectorAll(".n-sleeve").forEach((e) => (e.textContent = n.sleeve));
+  document.querySelectorAll(".n-cash").forEach((e) => (e.textContent = n.cash));
+}
+
+function chart() {
+  const pts = D.chart;
+  if (!pts || pts.length < 2) return;
+  const W = 860, H = 280, L = 8, R = 64, T = 10, B = 26;
+  const vals = pts.flatMap((p) => [p.c, p.a]);
+  let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.06; lo -= pad; hi += pad;
+  const x = (i) => L + (i / (pts.length - 1)) * (W - L - R), y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const line = (k) => pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p[k]).toFixed(1)}`).join("");
+  // shade the periods above / below the average
+  let bands = "";
+  let s = 0;
+  for (let i = 1; i <= pts.length; i++) {
+    if (i === pts.length || (pts[i].c > pts[i].a) !== (pts[s].c > pts[s].a)) {
+      bands += `<rect x="${x(s)}" y="${T}" width="${Math.max(1, x(i - 1) - x(s))}" height="${H - T - B}" fill="var(--${pts[s].c > pts[s].a ? "pos" : "neg"}-soft)" opacity=".7"/>`;
+      s = i;
+    }
+  }
+  const last = pts[pts.length - 1];
+  const ticks = [0, Math.floor(pts.length / 2), pts.length - 1];
+  $("#chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="SPY and its 200-day average">
+    ${bands}
+    <path d="${line("a")}" fill="none" stroke="var(--avg)" stroke-width="2" stroke-dasharray="6 4"/>
+    <path d="${line("c")}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    <text x="${W - R + 6}" y="${y(last.c) + 4}" fill="var(--accent)" font-size="12" font-weight="700">${usd(last.c, 0)}</text>
+    <text x="${W - R + 6}" y="${y(last.a) + 4}" fill="var(--avg)" font-size="12">${usd(last.a, 0)}</text>
+    ${ticks.map((i) => `<text x="${x(i)}" y="${H - 6}" fill="var(--muted)" font-size="11" text-anchor="${i === 0 ? "start" : i === pts.length - 1 ? "end" : "middle"}">${fmtDate(pts[i].d)}</text>`).join("")}
+  </svg>`;
+}
+
+function mine() {
+  const n = D.names, h = load(), P = D.prices;
+  const f = (k) => Number(h[k] || 0);
+  const vCore = f("core") * (P[n.core] || 0);
+  const vSleeve = f("sleeve") * (P[n.sleeve] || 0) + f("cash") * (P[n.cash] || 0) + f("usd");
+  const tot = vCore + vSleeve;
+  const coreShare = tot ? (vCore / tot) * 100 : 0;
+  const target = tot / 2, move = Math.abs(vCore - target);
+  const wrongPlace = D.above ? f("cash") * (P[n.cash] || 0) : f("sleeve") * (P[n.sleeve] || 0);
+  let advice = "";
+  if (tot > 0) {
+    if (wrongPlace > Math.max(100, tot * 0.01)) advice = `<div class="advice act">The sleeve should hold ${esc(D.sleeve_should_hold)}: you have ${usd(wrongPlace)} in ${esc(D.above ? n.cash : n.sleeve)} that belongs in ${esc(D.sleeve_should_hold)}.</div>`;
+    else if (Math.abs(coreShare - 50) > 10) advice = `<div class="advice act">The split has drifted to ${coreShare.toFixed(0)}/${(100 - coreShare).toFixed(0)}. At the next rebalance, move about ${usd(move)} from the ${vCore > target ? "core to the sleeve" : "sleeve to the core"}.</div>`;
+    else advice = `<div class="advice ok">On plan: ${coreShare.toFixed(0)}/${(100 - coreShare).toFixed(0)} core / sleeve, and the sleeve is where it should be.</div>`;
+  }
+  $("#mine").innerHTML = `<h2>Your portfolio</h2>
+    <div class="inputs">
+      <label>${esc(n.core)} shares (core)<input inputmode="decimal" data-k="core" value="${h.core ?? ""}" placeholder="0"></label>
+      <label>${esc(n.sleeve)} shares (sleeve)<input inputmode="decimal" data-k="sleeve" value="${h.sleeve ?? ""}" placeholder="0"></label>
+      <label>${esc(n.cash)} shares (sleeve cash)<input inputmode="decimal" data-k="cash" value="${h.cash ?? ""}" placeholder="0"></label>
+      <label>Uninvested USD (counted in the sleeve)<input inputmode="decimal" data-k="usd" value="${h.usd ?? ""}" placeholder="0"></label>
+    </div>
+    ${tot > 0 ? `<div class="grid" style="margin-top:14px">
+      <div><div class="k">Total</div><div class="v">${usd(tot)}</div></div>
+      <div><div class="k">Core</div><div class="v">${usd(vCore)}</div><div class="muted small">${coreShare.toFixed(1)}%</div></div>
+      <div><div class="k">Sleeve</div><div class="v">${usd(vSleeve)}</div><div class="muted small">${(100 - coreShare).toFixed(1)}%</div></div>
+    </div>
+    <div class="split"><span style="width:${coreShare}%;background:var(--accent)"></span><span style="width:${100 - coreShare}%;background:var(--${D.above ? "pos" : "avg"})"></span></div>
+    <div class="muted small">Core ${esc(n.core)} · Sleeve ${esc(D.above ? n.sleeve : n.cash)}</div>${advice}` : ""}
+    <p class="note">Values use the latest closing prices. What you type here stays in this browser only; it isn't sent anywhere.</p>`;
+  document.querySelectorAll("#mine input").forEach((i) => i.addEventListener("change", () => {
+    const h2 = load(); h2[i.dataset.k] = i.value.replace(/[^0-9.]/g, ""); save(h2); mine();
+  }));
+}
+
+function history() {
+  const n = D.names;
+  if (!D.history.length) { $("#history").innerHTML = '<p class="muted small">No switches in the last two years.</p>'; return; }
+  $("#history").innerHTML = `<table><thead><tr><th>Signal date</th><th>Switch</th><th class="r">${esc(n.index)} close*</th><th class="r">200-day avg</th></tr></thead><tbody>
+    ${D.history.map((s) => `<tr><td>${fmtDate(s.date)}</td><td class="${s.to === "in" ? "pos" : "neg"}">${s.to === "in" ? "🟢 into " + esc(n.sleeve) : "🔴 to " + esc(n.cash)}</td><td class="r">${usd(s.close, 2)}</td><td class="r">${usd(s.avg, 2)}</td></tr>`).join("")}
+    </tbody></table><p class="note">*Dividend-adjusted prices, the same ones the rule uses. Trades happen at the next morning's open.</p>`;
+}
+
+fetch("data.json?" + Date.now()).then((r) => r.json()).then((d) => {
+  D = d;
+  $("#updated").textContent = `Updated ${new Date(d.updated).toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short" })} · next check after today's US close`;
+  hero(); chart(); mine(); history();
+}).catch(() => { $("#updated").textContent = "No data yet: run the workflow once (Actions → Blend Signal → Run workflow)."; });
+</script>
+</body>
+</html>

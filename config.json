@@ -1,0 +1,8 @@
+{
+  "index": "SPY",
+  "sma_days": 200,
+  "core": "VOO",
+  "sleeve": "UPRO",
+  "cash": "SGOV",
+  "split": "50/50"
+}
